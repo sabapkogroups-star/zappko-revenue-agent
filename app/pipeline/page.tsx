@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { getLeads, updateLeadStatus, deleteLead, setSelectedLead, patchLead } from '@/lib/storage';
+import { getLeads, updateLead, deleteLead } from '@/lib/lead-service';
+import { setSelectedLead } from '@/lib/storage';
 import { useRouter } from 'next/navigation';
 import type { Lead, LeadStatus } from '@/app/types';
 
@@ -129,7 +130,7 @@ function LeadCard({ lead, onStatusChange, onDelete, onOutreach, isDragging, onDr
         {stageIdx > 0 && (
           <button
             onClick={() => onStatusChange(lead.id, STAGES[stageIdx - 1].status)}
-            className="flex-1 text-[10px] py-1 rounded border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-colors"
+            className="flex-1 text-xs py-2 rounded border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-colors"
           >
             ← {STAGES[stageIdx - 1].label}
           </button>
@@ -137,7 +138,7 @@ function LeadCard({ lead, onStatusChange, onDelete, onOutreach, isDragging, onDr
         {stageIdx < STAGES.length - 1 && (
           <button
             onClick={() => onStatusChange(lead.id, STAGES[stageIdx + 1].status)}
-            className="flex-1 text-[10px] py-1 rounded border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-colors"
+            className="flex-1 text-xs py-2 rounded border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-colors"
           >
             {STAGES[stageIdx + 1].label} →
           </button>
@@ -148,7 +149,7 @@ function LeadCard({ lead, onStatusChange, onDelete, onOutreach, isDragging, onDr
       <div className="flex items-center gap-1">
         <button
           onClick={() => onOutreach(lead)}
-          className="flex-1 text-[10px] py-1 rounded bg-blue-600/15 border border-blue-600/25 text-blue-400 hover:bg-blue-600/25 transition-colors font-medium"
+          className="flex-1 text-xs py-2 rounded bg-blue-600/15 border border-blue-600/25 text-blue-400 hover:bg-blue-600/25 transition-colors font-medium"
         >
           Outreach
         </button>
@@ -161,7 +162,7 @@ function LeadCard({ lead, onStatusChange, onDelete, onOutreach, isDragging, onDr
               setTimeout(() => setConfirmDelete(false), 2500);
             }
           }}
-          className={`flex-1 text-[10px] py-1 rounded border transition-colors font-medium ${
+          className={`flex-1 text-xs py-2 rounded border transition-colors font-medium ${
             confirmDelete
               ? 'bg-red-600 border-red-500 text-white'
               : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'
@@ -186,8 +187,21 @@ export default function PipelinePage() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [search, setSearch] = useState('');
 
-  const reload = () => setLeads(getLeads());
-  useEffect(() => { reload(); }, []);
+  const [pageLoading, setPageLoading] = useState(true);
+
+  const reload = async () => {
+    const fresh = await getLeads();
+    setLeads(fresh);
+  };
+
+  useEffect(() => {
+    async function init() {
+      setPageLoading(true);
+      await reload();
+      setPageLoading(false);
+    }
+    init();
+  }, []);
 
   const addToast = (message: string, type: 'success' | 'error') => {
     const id = Date.now();
@@ -208,15 +222,15 @@ export default function PipelinePage() {
 
   const byStatus = (status: LeadStatus) => filtered.filter((l) => l.status === status);
 
-  const handleStatusChange = (id: string, status: LeadStatus) => {
-    updateLeadStatus(id, status);
-    reload();
+  const handleStatusChange = async (id: string, status: LeadStatus) => {
+    await updateLead(id, { status });
+    await reload();
     addToast(`Lead moved to ${status}`, 'success');
   };
 
-  const handleDelete = (id: string) => {
-    deleteLead(id);
-    reload();
+  const handleDelete = async (id: string) => {
+    await deleteLead(id);
+    await reload();
     addToast('Lead deleted', 'success');
   };
 
@@ -225,12 +239,12 @@ export default function PipelinePage() {
     router.push('/outreach');
   };
 
-  const handleDrop = (status: LeadStatus) => {
+  const handleDrop = async (status: LeadStatus) => {
     if (draggingId && dragOverStatus === status) {
       const lead = leads.find((l) => l.id === draggingId);
       if (lead && lead.status !== status) {
-        updateLeadStatus(draggingId, status);
-        reload();
+        await updateLead(draggingId, { status });
+        await reload();
         addToast(`Moved to ${status}`, 'success');
       }
     }
@@ -242,9 +256,9 @@ export default function PipelinePage() {
   const hotCount = leads.filter((l) => l.hotLeadScore >= 60).length;
 
   return (
-    <div className="p-8 min-h-screen">
+    <div className="p-4 md:p-8 min-h-screen">
       {/* Toasts */}
-      <div className="fixed top-4 right-4 z-40 flex flex-col gap-2 pointer-events-none">
+      <div className="fixed top-20 md:top-4 right-4 z-40 flex flex-col gap-2 pointer-events-none">
         {toasts.map((t) => (
           <div
             key={t.id}
@@ -260,9 +274,9 @@ export default function PipelinePage() {
       </div>
 
       {/* Header */}
-      <div className="mb-6 flex items-start justify-between gap-4">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">CRM Pipeline</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-white">CRM Pipeline</h1>
           <p className="text-zinc-500 mt-1 text-sm">
             {leads.length} leads · {formatDeal(totalValue)} pipeline · {hotCount} hot
           </p>
@@ -271,12 +285,20 @@ export default function PipelinePage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search leads…"
-          className="bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors w-56"
+          className="w-full sm:w-56 bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
         />
       </div>
 
+      {/* Loading state */}
+      {pageLoading && (
+        <div className="flex items-center justify-center py-20 gap-3 text-zinc-500">
+          <span className="w-5 h-5 border-2 border-zinc-700 border-t-blue-500 rounded-full animate-spin" />
+          <span className="text-sm">Loading pipeline…</span>
+        </div>
+      )}
+
       {/* Kanban board */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      {!pageLoading && <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {STAGES.map((stage) => {
           const stageLeads = byStatus(stage.status);
           const stageValue = stageLeads.reduce((sum, l) => sum + parseDeal(l.dealValue), 0);
@@ -338,9 +360,9 @@ export default function PipelinePage() {
             </div>
           );
         })}
-      </div>
+      </div>}
 
-      {leads.length === 0 && (
+      {!pageLoading && leads.length === 0 && (
         <div className="text-center py-20 text-zinc-600">
           <p className="text-5xl mb-4">📋</p>
           <p className="text-lg font-medium text-zinc-400">Pipeline is empty</p>

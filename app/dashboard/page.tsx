@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { getDashboardStats, getLeads } from '@/lib/storage';
+import { getDashboardStats, getLeads } from '@/lib/lead-service';
 import type { AIRecommendation, DashboardStats, Lead, LeadStatus, PipelineHealth } from '@/app/types';
 
 // ---------------------------------------------------------------------------
@@ -267,10 +267,17 @@ export default function Dashboard() {
     totalLeads: 0, hotLeads: 0, pipelineValue: 0, auditsGenerated: 0, outreachGenerated: 0,
   });
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setStats(getDashboardStats());
-    setLeads(getLeads());
+    async function load() {
+      setLoading(true);
+      const [freshLeads, freshStats] = await Promise.all([getLeads(), getDashboardStats()]);
+      setLeads(freshLeads);
+      setStats(freshStats);
+      setLoading(false);
+    }
+    load();
   }, []);
 
   const recommendations = useMemo(() => buildRecommendations(leads), [leads]);
@@ -303,23 +310,23 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-4 md:p-8 max-w-7xl">
       {/* Header */}
-      <div className="mb-8 flex items-start justify-between">
+      <div className="mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Revenue Command Center</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-white">Revenue Command Center</h1>
           <p className="text-zinc-500 mt-1 text-sm">AI-powered pipeline intelligence and sales automation.</p>
         </div>
         <Link
           href="/pipeline"
-          className="text-xs px-4 py-2 bg-blue-600/15 border border-blue-600/25 text-blue-400 rounded-lg hover:bg-blue-600/25 transition-colors font-medium"
+          className="self-start text-xs px-4 py-2 bg-blue-600/15 border border-blue-600/25 text-blue-400 rounded-lg hover:bg-blue-600/25 transition-colors font-medium whitespace-nowrap"
         >
           CRM Pipeline →
         </Link>
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
+      <div className={`grid grid-cols-2 lg:grid-cols-6 gap-4 mb-8 transition-opacity duration-300 ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
         <StatCard label="Total Leads" value={String(stats.totalLeads)} sub="In pipeline" accent="border-zinc-800" />
         <StatCard label="Hot Leads" value={String(stats.hotLeads)} sub="Score ≥ 60" accent="border-red-500/30" />
         <StatCard label="Pipeline Value" value={formatPipeline(stats.pipelineValue)} sub="Estimated deals" accent="border-emerald-500/30" />
@@ -393,37 +400,63 @@ export default function Dashboard() {
               </Link>
             </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-800">
-                  <th className="text-left px-5 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Company</th>
-                  <th className="text-left px-5 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Hot Score</th>
-                  <th className="text-left px-5 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Deal</th>
-                  <th className="text-left px-5 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Status</th>
-                </tr>
-              </thead>
-              <tbody>
+            <>
+              {/* Desktop table */}
+              <table className="hidden md:table w-full text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-800">
+                    <th className="text-left px-5 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Company</th>
+                    <th className="text-left px-5 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Hot Score</th>
+                    <th className="text-left px-5 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Deal</th>
+                    <th className="text-left px-5 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentLeads.map((lead) => (
+                    <tr key={lead.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
+                      <td className="px-5 py-3.5">
+                        <p className="font-medium text-white text-sm">{lead.company}</p>
+                        <p className="text-xs text-zinc-500 truncate max-w-36">{lead.website.replace('https://', '')}</p>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className={`font-semibold text-sm ${lead.hotLeadScore >= 70 ? 'text-red-400' : lead.hotLeadScore >= 50 ? 'text-amber-400' : 'text-zinc-400'}`}>
+                          {lead.hotLeadScore}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-emerald-400 font-medium text-sm">{lead.dealValue}</td>
+                      <td className="px-5 py-3.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-md border font-medium capitalize ${STATUS_STYLES[lead.status]}`}>
+                          {lead.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Mobile cards */}
+              <div className="md:hidden divide-y divide-zinc-800/60">
                 {recentLeads.map((lead) => (
-                  <tr key={lead.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
-                    <td className="px-5 py-3.5">
-                      <p className="font-medium text-white text-sm">{lead.company}</p>
-                      <p className="text-xs text-zinc-500 truncate max-w-36">{lead.website.replace('https://', '')}</p>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span className={`font-semibold text-sm ${lead.hotLeadScore >= 70 ? 'text-red-400' : lead.hotLeadScore >= 50 ? 'text-amber-400' : 'text-zinc-400'}`}>
-                        {lead.hotLeadScore}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-emerald-400 font-medium text-sm">{lead.dealValue}</td>
-                    <td className="px-5 py-3.5">
-                      <span className={`text-xs px-2 py-0.5 rounded-md border font-medium capitalize ${STATUS_STYLES[lead.status]}`}>
+                  <div key={lead.id} className="px-4 py-3.5 hover:bg-zinc-800/20 transition-colors">
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <div className="min-w-0">
+                        <p className="font-medium text-white text-sm truncate">{lead.company}</p>
+                        <p className="text-xs text-zinc-500 truncate">{lead.website.replace('https://', '')}</p>
+                      </div>
+                      <span className={`shrink-0 text-xs px-2 py-0.5 rounded-md border font-medium capitalize ${STATUS_STYLES[lead.status]}`}>
                         {lead.status}
                       </span>
-                    </td>
-                  </tr>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className={`font-semibold text-sm ${lead.hotLeadScore >= 70 ? 'text-red-400' : lead.hotLeadScore >= 50 ? 'text-amber-400' : 'text-zinc-400'}`}>
+                        Score {lead.hotLeadScore}
+                      </span>
+                      <span className="text-emerald-400 font-medium text-sm">{lead.dealValue}</span>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </>
           )}
         </div>
 

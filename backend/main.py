@@ -1,4 +1,5 @@
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
@@ -20,6 +21,9 @@ from scraper import discover_companies
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 app = FastAPI(title="Zappko Revenue Agent API", version="2.0.0")
 
@@ -86,6 +90,11 @@ def _build_lead(index: int, company: dict, country: str = "") -> Optional[LeadRe
     except Exception as exc:
         logger.error("Failed to build lead for %s: %s", company.get("company"), exc)
         return None
+
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
 
 
 @app.get("/")

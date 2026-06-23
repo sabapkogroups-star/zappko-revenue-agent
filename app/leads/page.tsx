@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { getLeads, deleteLead, updateLeadStatus, setSelectedLead, patchLead } from '@/lib/storage';
+import { getLeads, deleteLead, updateLead } from '@/lib/lead-service';
+import { setSelectedLead } from '@/lib/storage';
 import type { Lead, LeadStatus, FollowUp } from '@/app/types';
 
 const STATUS_OPTIONS: LeadStatus[] = ['new', 'contacted', 'qualified', 'closed'];
@@ -79,7 +80,6 @@ function FollowUpModal({
   const sentCount  = lead.followUpCount ?? 0;
   const sentOffset = STEP_DAYS[Math.max(0, sentCount - 1)] ?? 0;
 
-  // Compute absolute schedule dates from when Email 1 was / will be sent
   const email1Date = sentCount > 0
     ? new Date(new Date(lead.lastContactDate!).getTime() - sentOffset * 86400000)
     : new Date();
@@ -90,13 +90,13 @@ function FollowUpModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-3 md:p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 shrink-0">
+        <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-zinc-800 shrink-0">
           <div>
             <h2 className="text-white font-bold text-base">Follow-Up Sequence</h2>
             <p className="text-zinc-500 text-xs mt-0.5">
@@ -123,8 +123,8 @@ function FollowUpModal({
           <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
 
             {/* Step tabs */}
-            <div className="px-6 pt-4 pb-0 shrink-0">
-              <div className="grid grid-cols-4 gap-2">
+            <div className="px-4 md:px-6 pt-4 pb-0 shrink-0">
+              <div className="grid grid-cols-4 gap-1.5 md:gap-2">
                 {STEP_LABELS.map((label, i) => {
                   const isSent    = i < sentCount;
                   const isCurrent = i === activeIdx;
@@ -132,7 +132,7 @@ function FollowUpModal({
                     <button
                       key={i}
                       onClick={() => onSelectIdx(i)}
-                      className={`relative px-2 py-2 rounded-lg border text-xs font-medium transition-all text-center ${
+                      className={`relative px-1 md:px-2 py-2 rounded-lg border text-xs font-medium transition-all text-center ${
                         isCurrent
                           ? STEP_COLORS[i]
                           : isSent
@@ -143,8 +143,8 @@ function FollowUpModal({
                       {isSent && !isCurrent && (
                         <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-emerald-500 rounded-full text-white text-[9px] flex items-center justify-center">✓</span>
                       )}
-                      <span className="block truncate">{label}</span>
-                      <span className="block text-[10px] opacity-60 mt-0.5">Day {STEP_DAYS[i]}</span>
+                      <span className="block truncate text-[10px] md:text-xs">{label}</span>
+                      <span className="block text-[9px] md:text-[10px] opacity-60 mt-0.5">Day {STEP_DAYS[i]}</span>
                     </button>
                   );
                 })}
@@ -153,7 +153,7 @@ function FollowUpModal({
 
             {/* Message body */}
             {active ? (
-              <div className="flex-1 px-6 py-4 space-y-3">
+              <div className="flex-1 px-4 md:px-6 py-4 space-y-3">
                 {/* Subject */}
                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-1.5">
@@ -175,7 +175,7 @@ function FollowUpModal({
                 </div>
 
                 {/* Mark Sent */}
-                <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
                   <div className="flex items-center gap-2">
                     {activeIdx < sentCount ? (
                       <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
@@ -201,7 +201,7 @@ function FollowUpModal({
                   </div>
                   {activeIdx < STEP_LABELS.length - 1 && activeIdx === sentCount - 1 && (
                     <span className="text-xs text-zinc-500">
-                      Next follow-up: <span className="text-zinc-300">{formatDate(scheduleDates[activeIdx + 1].toISOString())}</span>
+                      Next: <span className="text-zinc-300">{formatDate(scheduleDates[activeIdx + 1].toISOString())}</span>
                     </span>
                   )}
                 </div>
@@ -213,7 +213,7 @@ function FollowUpModal({
             )}
 
             {/* Schedule footer */}
-            <div className="px-6 py-4 border-t border-zinc-800/60 shrink-0">
+            <div className="px-4 md:px-6 py-4 border-t border-zinc-800/60 shrink-0">
               <p className="text-xs text-zinc-600 mb-2 uppercase tracking-wider font-medium">Send Schedule</p>
               <div className="grid grid-cols-4 gap-2">
                 {STEP_LABELS.map((label, i) => {
@@ -256,6 +256,7 @@ export default function LeadsPage() {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const [proposalLoading, setProposalLoading] = useState<Set<string>>(new Set());
+  const [pageLoading, setPageLoading] = useState(true);
 
   // Follow-up modal state
   const [followUpLead, setFollowUpLead] = useState<Lead | null>(null);
@@ -263,9 +264,19 @@ export default function LeadsPage() {
   const [followUpLoading, setFollowUpLoading] = useState(false);
   const [activeFollowUpIdx, setActiveFollowUpIdx] = useState(0);
 
-  const reload = () => setLeads(getLeads());
+  const reload = async () => {
+    const fresh = await getLeads();
+    setLeads(fresh);
+  };
 
-  useEffect(() => { reload(); }, []);
+  useEffect(() => {
+    async function init() {
+      setPageLoading(true);
+      await reload();
+      setPageLoading(false);
+    }
+    init();
+  }, []);
 
   const addToast = (message: string, type: 'success' | 'error') => {
     const id = Date.now();
@@ -285,16 +296,16 @@ export default function LeadsPage() {
     });
   }, [leads, search, statusFilter]);
 
-  const handleStatusChange = (id: string, status: LeadStatus) => {
-    updateLeadStatus(id, status);
-    reload();
+  const handleStatusChange = async (id: string, status: LeadStatus) => {
+    await updateLead(id, { status });
+    await reload();
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (deleteConfirm === id) {
-      deleteLead(id);
+      await deleteLead(id);
       setDeleteConfirm(null);
-      reload();
+      await reload();
     } else {
       setDeleteConfirm(id);
       setTimeout(() => setDeleteConfirm(null), 3000);
@@ -334,7 +345,6 @@ export default function LeadsPage() {
     setFollowUpLead(lead);
     setActiveFollowUpIdx(lead.followUpCount ?? 0);
 
-    // Use cached messages if available
     if (lead.followUps?.length) {
       setFollowUpMessages(lead.followUps);
       return;
@@ -351,9 +361,9 @@ export default function LeadsPage() {
       const data = await res.json();
       const messages: FollowUp[] = data.followUps;
 
-      patchLead(lead.id, { followUps: messages });
+      await updateLead(lead.id, { followUps: messages });
       setFollowUpMessages(messages);
-      reload();
+      await reload();
     } catch {
       addToast('Failed to generate follow-ups — is the backend running?', 'error');
       setFollowUpLead(null);
@@ -362,7 +372,7 @@ export default function LeadsPage() {
     }
   };
 
-  const handleMarkSent = (msgIndex: number) => {
+  const handleMarkSent = async (msgIndex: number) => {
     if (!followUpLead) return;
 
     const today = new Date();
@@ -377,7 +387,7 @@ export default function LeadsPage() {
       ...(nextDate ? { nextFollowUpDate: nextDate } : { nextFollowUpDate: undefined }),
     };
 
-    patchLead(followUpLead.id, patch);
+    await updateLead(followUpLead.id, patch);
     const updatedLead = { ...followUpLead, ...patch };
     setFollowUpLead(updatedLead);
 
@@ -387,7 +397,7 @@ export default function LeadsPage() {
     }
 
     addToast(`${STEP_LABELS[msgIndex]} marked as sent`, 'success');
-    reload();
+    await reload();
   };
 
   const counts = useMemo(() => {
@@ -409,9 +419,9 @@ export default function LeadsPage() {
   };
 
   return (
-    <div className="p-8 max-w-full">
+    <div className="p-4 md:p-8 max-w-full">
       {/* Toasts */}
-      <div className="fixed top-4 right-4 z-40 flex flex-col gap-2 pointer-events-none">
+      <div className="fixed top-16 md:top-4 right-4 z-40 flex flex-col gap-2 pointer-events-none">
         {toasts.map((t) => (
           <div
             key={t.id}
@@ -440,14 +450,14 @@ export default function LeadsPage() {
       )}
 
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white">Leads Pipeline</h1>
+      <div className="mb-6 md:mb-8">
+        <h1 className="text-2xl md:text-3xl font-bold text-white">Leads Pipeline</h1>
         <p className="text-zinc-500 mt-1 text-sm">Manage saved leads, track status, and run follow-up sequences.</p>
       </div>
 
       {/* Controls */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-5">
-        <div className="relative flex-1">
+      <div className="flex flex-col gap-3 mb-5">
+        <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -460,26 +470,36 @@ export default function LeadsPage() {
             className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors"
           />
         </div>
-        <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-1">
-          {(['all', ...STATUS_OPTIONS] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors ${
-                statusFilter === s
-                  ? 'bg-blue-600 text-white'
-                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-              }`}
-            >
-              {s} {counts[s] > 0 && <span className="ml-0.5 opacity-70">({counts[s]})</span>}
-            </button>
-          ))}
+        {/* Status filter — scrollable on mobile */}
+        <div className="overflow-x-auto -mx-4 md:mx-0 px-4 md:px-0">
+          <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-1 w-max md:w-auto min-w-full md:min-w-0">
+            {(['all', ...STATUS_OPTIONS] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors whitespace-nowrap ${
+                  statusFilter === s
+                    ? 'bg-blue-600 text-white'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                {s} {counts[s] > 0 && <span className="ml-0.5 opacity-70">({counts[s]})</span>}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Table */}
-      {filtered.length === 0 ? (
-        <div className="text-center py-20 bg-zinc-900 border border-zinc-800 rounded-xl">
+      {/* Loading state */}
+      {pageLoading && (
+        <div className="flex items-center justify-center py-20 gap-3 text-zinc-500">
+          <span className="w-5 h-5 border-2 border-zinc-700 border-t-blue-500 rounded-full animate-spin" />
+          <span className="text-sm">Loading leads…</span>
+        </div>
+      )}
+
+      {!pageLoading && filtered.length === 0 ? (
+        <div className="text-center py-16 md:py-20 bg-zinc-900 border border-zinc-800 rounded-xl">
           <p className="text-4xl mb-3">👥</p>
           <p className="text-zinc-400 font-medium">
             {leads.length === 0 ? 'No leads saved yet' : 'No leads match your filter'}
@@ -488,29 +508,19 @@ export default function LeadsPage() {
             {leads.length === 0 ? 'Run Discovery to find and save leads.' : 'Try a different search or status filter.'}
           </p>
         </div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-zinc-800">
-          <table className="w-full text-sm min-w-300">
-            <thead>
-              <tr className="bg-zinc-900 border-b border-zinc-800">
-                <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Company</th>
-                <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Contact</th>
-                <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Web Score</th>
-                <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Deal Value</th>
-                <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Status</th>
-                <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Follow-ups</th>
-                <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((lead) => (
-                <tr key={lead.id} className="border-b border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
-                  {/* Company */}
-                  <td className="px-4 py-3.5">
-                    <div className="flex items-center gap-2">
+      ) : !pageLoading ? (
+        <>
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-3">
+            {filtered.map((lead) => (
+              <div key={lead.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                {/* Header row */}
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold text-white">{lead.company}</p>
                       {isFollowUpDue(lead) && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold whitespace-nowrap">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold">
                           Due
                         </span>
                       )}
@@ -523,121 +533,259 @@ export default function LeadsPage() {
                     >
                       {lead.website.replace('https://', '')}
                     </a>
-                  </td>
-                  {/* Contact */}
-                  <td className="px-4 py-3.5">
-                    {lead.decisionMaker ? (
-                      <>
-                        <p className="text-white text-xs font-semibold">{lead.decisionMaker}</p>
-                        {lead.title && <p className="text-blue-400/80 text-xs">{lead.title}</p>}
-                      </>
-                    ) : (
-                      <p className="text-zinc-600 text-xs">—</p>
+                  </div>
+                  <select
+                    value={lead.status}
+                    onChange={(e) => handleStatusChange(lead.id, e.target.value as LeadStatus)}
+                    className={`shrink-0 text-xs px-2 py-1 rounded-md border font-medium capitalize bg-transparent cursor-pointer focus:outline-none ${STATUS_STYLES[lead.status]}`}
+                  >
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s} className="bg-zinc-900 text-white capitalize">{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Contact + deal row */}
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0">
+                    {lead.decisionMaker && (
+                      <p className="text-white text-xs font-semibold truncate">{lead.decisionMaker}</p>
                     )}
-                    {lead.email && <p className="text-zinc-500 text-xs mt-0.5">{lead.email}</p>}
+                    {lead.title && <p className="text-blue-400/80 text-xs truncate">{lead.title}</p>}
+                    {lead.email && <p className="text-zinc-500 text-xs truncate">{lead.email}</p>}
                     {lead.phone && <p className="text-zinc-500 text-xs">{lead.phone}</p>}
-                    {lead.linkedinUrl && (
-                      <a href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300">
-                        LinkedIn ↗
-                      </a>
+                    {!lead.decisionMaker && !lead.email && !lead.phone && (
+                      <p className="text-zinc-600 text-xs">No contact info</p>
                     )}
-                  </td>
-                  {/* Web Score */}
-                  <td className="px-4 py-3.5">
-                    <ScoreChip score={lead.websiteScore} />
-                  </td>
-                  {/* Deal Value */}
-                  <td className="px-4 py-3.5 text-emerald-400 font-semibold">{lead.dealValue}</td>
-                  {/* Status */}
-                  <td className="px-4 py-3.5">
-                    <select
-                      value={lead.status}
-                      onChange={(e) => handleStatusChange(lead.id, e.target.value as LeadStatus)}
-                      className={`text-xs px-2 py-1 rounded-md border font-medium capitalize bg-transparent cursor-pointer focus:outline-none ${STATUS_STYLES[lead.status]}`}
-                    >
-                      {STATUS_OPTIONS.map((s) => (
-                        <option key={s} value={s} className="bg-zinc-900 text-white capitalize">{s}</option>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-emerald-400 font-semibold text-sm">{lead.dealValue}</p>
+                    <p className="text-zinc-500 text-xs mt-0.5">Score <ScoreChip score={lead.websiteScore} /></p>
+                  </div>
+                </div>
+
+                {/* Follow-up progress */}
+                {(lead.followUpCount ?? 0) > 0 && (
+                  <div className="mb-3">
+                    <div className="flex gap-1 mb-1">
+                      {[0, 1, 2, 3].map((i) => (
+                        <div
+                          key={i}
+                          className={`flex-1 h-1.5 rounded-full ${i < (lead.followUpCount ?? 0) ? 'bg-emerald-400' : 'bg-zinc-800'}`}
+                        />
                       ))}
-                    </select>
-                  </td>
-                  {/* Follow-ups */}
-                  <td className="px-4 py-3.5">
-                    {(lead.followUpCount ?? 0) > 0 ? (
-                      <div>
-                        <div className="flex gap-1 mb-1">
-                          {STEP_LABELS.map((_, i) => (
-                            <div
-                              key={i}
-                              className={`w-4 h-1.5 rounded-full ${
-                                i < (lead.followUpCount ?? 0) ? 'bg-emerald-400' : 'bg-zinc-700'
-                              }`}
-                            />
-                          ))}
-                        </div>
-                        <p className="text-xs text-zinc-500">
-                          {(lead.followUpCount ?? 0) >= STEP_LABELS.length
-                            ? <span className="text-emerald-400">Sequence complete</span>
-                            : lead.nextFollowUpDate
-                            ? <>Next: <span className={isFollowUpDue(lead) ? 'text-amber-400 font-medium' : 'text-zinc-400'}>{formatDate(lead.nextFollowUpDate)}</span></>
-                            : `${lead.followUpCount}/${STEP_LABELS.length} sent`
-                          }
-                        </p>
-                      </div>
-                    ) : (
-                      <span className="text-zinc-700 text-xs">Not started</span>
-                    )}
-                  </td>
-                  {/* Actions */}
-                  <td className="px-4 py-3.5">
-                    <div className="flex flex-col gap-1.5">
-                      <button
-                        onClick={() => handleOutreach(lead)}
-                        className="text-xs px-3 py-1.5 rounded-md bg-blue-600/20 border border-blue-600/30 text-blue-300 hover:bg-blue-600/30 transition-colors font-medium"
-                      >
-                        Outreach
-                      </button>
-                      <button
-                        onClick={() => handleDownloadProposal(lead)}
-                        disabled={proposalLoading.has(lead.id)}
-                        className="text-xs px-3 py-1.5 rounded-md bg-amber-600/20 border border-amber-600/30 text-amber-300 hover:bg-amber-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-1"
-                      >
-                        {proposalLoading.has(lead.id) ? (
-                          <>
-                            <span className="inline-block w-2.5 h-2.5 border border-amber-400/40 border-t-amber-300 rounded-full animate-spin" />
-                            Generating…
-                          </>
-                        ) : '↓ Proposal'}
-                      </button>
-                      <button
-                        onClick={() => handleGenerateFollowUps(lead)}
-                        className={`text-xs px-3 py-1.5 rounded-md border transition-colors font-medium ${
-                          (lead.followUpCount ?? 0) >= STEP_LABELS.length
-                            ? 'bg-emerald-600/10 border-emerald-600/20 text-emerald-500'
-                            : (lead.followUpCount ?? 0) > 0
-                            ? 'bg-amber-600/20 border-amber-600/30 text-amber-300 hover:bg-amber-600/30'
-                            : 'bg-violet-600/20 border-violet-600/30 text-violet-300 hover:bg-violet-600/30'
-                        }`}
-                      >
-                        {followUpButtonLabel(lead)}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(lead.id)}
-                        className={`text-xs px-3 py-1.5 rounded-md border transition-colors font-medium ${
-                          deleteConfirm === lead.id
-                            ? 'bg-red-600 border-red-500 text-white'
-                            : 'bg-red-600/10 border-red-600/20 text-red-400 hover:bg-red-600/20'
-                        }`}
-                      >
-                        {deleteConfirm === lead.id ? 'Confirm?' : 'Delete'}
-                      </button>
                     </div>
-                  </td>
+                    <p className="text-xs text-zinc-500">
+                      {(lead.followUpCount ?? 0) >= STEP_LABELS.length
+                        ? <span className="text-emerald-400">Sequence complete</span>
+                        : lead.nextFollowUpDate
+                        ? <>Next: <span className={isFollowUpDue(lead) ? 'text-amber-400 font-medium' : 'text-zinc-400'}>{formatDate(lead.nextFollowUpDate)}</span></>
+                        : `${lead.followUpCount}/${STEP_LABELS.length} sent`
+                      }
+                    </p>
+                  </div>
+                )}
+
+                {/* Actions — primary full-width, secondary 2-col, delete full-width */}
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => handleOutreach(lead)}
+                    className="w-full text-sm px-3 py-3 rounded-md bg-blue-600/20 border border-blue-600/30 text-blue-300 hover:bg-blue-600/30 transition-colors font-medium"
+                  >
+                    Outreach
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleDownloadProposal(lead)}
+                      disabled={proposalLoading.has(lead.id)}
+                      className="text-xs px-3 py-2.5 rounded-md bg-amber-600/20 border border-amber-600/30 text-amber-300 hover:bg-amber-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium flex items-center justify-center gap-1"
+                    >
+                      {proposalLoading.has(lead.id) ? (
+                        <>
+                          <span className="inline-block w-2.5 h-2.5 border border-amber-400/40 border-t-amber-300 rounded-full animate-spin" />
+                          Generating…
+                        </>
+                      ) : '↓ Proposal'}
+                    </button>
+                    <button
+                      onClick={() => handleGenerateFollowUps(lead)}
+                      className={`text-xs px-3 py-2.5 rounded-md border transition-colors font-medium ${
+                        (lead.followUpCount ?? 0) >= STEP_LABELS.length
+                          ? 'bg-emerald-600/10 border-emerald-600/20 text-emerald-500'
+                          : (lead.followUpCount ?? 0) > 0
+                          ? 'bg-amber-600/20 border-amber-600/30 text-amber-300 hover:bg-amber-600/30'
+                          : 'bg-violet-600/20 border-violet-600/30 text-violet-300 hover:bg-violet-600/30'
+                      }`}
+                    >
+                      {followUpButtonLabel(lead)}
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => handleDelete(lead.id)}
+                    className={`w-full text-sm px-3 py-3 rounded-md border transition-colors font-medium ${
+                      deleteConfirm === lead.id
+                        ? 'bg-red-600 border-red-500 text-white'
+                        : 'bg-red-600/10 border-red-600/20 text-red-400 hover:bg-red-600/20'
+                    }`}
+                  >
+                    {deleteConfirm === lead.id ? 'Confirm?' : 'Delete'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto rounded-xl border border-zinc-800">
+            <table className="w-full text-sm min-w-300">
+              <thead>
+                <tr className="bg-zinc-900 border-b border-zinc-800">
+                  <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Company</th>
+                  <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Contact</th>
+                  <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Web Score</th>
+                  <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Deal Value</th>
+                  <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Status</th>
+                  <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Follow-ups</th>
+                  <th className="text-left px-4 py-3 text-xs text-zinc-500 font-medium uppercase tracking-wider">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {filtered.map((lead) => (
+                  <tr key={lead.id} className="border-b border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
+                    {/* Company */}
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-white">{lead.company}</p>
+                        {isFollowUpDue(lead) && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold whitespace-nowrap">
+                            Due
+                          </span>
+                        )}
+                      </div>
+                      <a
+                        href={lead.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                      >
+                        {lead.website.replace('https://', '')}
+                      </a>
+                    </td>
+                    {/* Contact */}
+                    <td className="px-4 py-3.5">
+                      {lead.decisionMaker ? (
+                        <>
+                          <p className="text-white text-xs font-semibold">{lead.decisionMaker}</p>
+                          {lead.title && <p className="text-blue-400/80 text-xs">{lead.title}</p>}
+                        </>
+                      ) : (
+                        <p className="text-zinc-600 text-xs">—</p>
+                      )}
+                      {lead.email && <p className="text-zinc-500 text-xs mt-0.5">{lead.email}</p>}
+                      {lead.phone && <p className="text-zinc-500 text-xs">{lead.phone}</p>}
+                      {lead.linkedinUrl && (
+                        <a href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300">
+                          LinkedIn ↗
+                        </a>
+                      )}
+                    </td>
+                    {/* Web Score */}
+                    <td className="px-4 py-3.5">
+                      <ScoreChip score={lead.websiteScore} />
+                    </td>
+                    {/* Deal Value */}
+                    <td className="px-4 py-3.5 text-emerald-400 font-semibold">{lead.dealValue}</td>
+                    {/* Status */}
+                    <td className="px-4 py-3.5">
+                      <select
+                        value={lead.status}
+                        onChange={(e) => handleStatusChange(lead.id, e.target.value as LeadStatus)}
+                        className={`text-xs px-2 py-1 rounded-md border font-medium capitalize bg-transparent cursor-pointer focus:outline-none ${STATUS_STYLES[lead.status]}`}
+                      >
+                        {STATUS_OPTIONS.map((s) => (
+                          <option key={s} value={s} className="bg-zinc-900 text-white capitalize">{s}</option>
+                        ))}
+                      </select>
+                    </td>
+                    {/* Follow-ups */}
+                    <td className="px-4 py-3.5">
+                      {(lead.followUpCount ?? 0) > 0 ? (
+                        <div>
+                          <div className="flex gap-1 mb-1">
+                            {STEP_LABELS.map((_, i) => (
+                              <div
+                                key={i}
+                                className={`w-4 h-1.5 rounded-full ${
+                                  i < (lead.followUpCount ?? 0) ? 'bg-emerald-400' : 'bg-zinc-700'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                          <p className="text-xs text-zinc-500">
+                            {(lead.followUpCount ?? 0) >= STEP_LABELS.length
+                              ? <span className="text-emerald-400">Sequence complete</span>
+                              : lead.nextFollowUpDate
+                              ? <>Next: <span className={isFollowUpDue(lead) ? 'text-amber-400 font-medium' : 'text-zinc-400'}>{formatDate(lead.nextFollowUpDate)}</span></>
+                              : `${lead.followUpCount}/${STEP_LABELS.length} sent`
+                            }
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-zinc-700 text-xs">Not started</span>
+                      )}
+                    </td>
+                    {/* Actions */}
+                    <td className="px-4 py-3.5">
+                      <div className="flex flex-col gap-1.5">
+                        <button
+                          onClick={() => handleOutreach(lead)}
+                          className="text-xs px-3 py-1.5 rounded-md bg-blue-600/20 border border-blue-600/30 text-blue-300 hover:bg-blue-600/30 transition-colors font-medium"
+                        >
+                          Outreach
+                        </button>
+                        <button
+                          onClick={() => handleDownloadProposal(lead)}
+                          disabled={proposalLoading.has(lead.id)}
+                          className="text-xs px-3 py-1.5 rounded-md bg-amber-600/20 border border-amber-600/30 text-amber-300 hover:bg-amber-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-1"
+                        >
+                          {proposalLoading.has(lead.id) ? (
+                            <>
+                              <span className="inline-block w-2.5 h-2.5 border border-amber-400/40 border-t-amber-300 rounded-full animate-spin" />
+                              Generating…
+                            </>
+                          ) : '↓ Proposal'}
+                        </button>
+                        <button
+                          onClick={() => handleGenerateFollowUps(lead)}
+                          className={`text-xs px-3 py-1.5 rounded-md border transition-colors font-medium ${
+                            (lead.followUpCount ?? 0) >= STEP_LABELS.length
+                              ? 'bg-emerald-600/10 border-emerald-600/20 text-emerald-500'
+                              : (lead.followUpCount ?? 0) > 0
+                              ? 'bg-amber-600/20 border-amber-600/30 text-amber-300 hover:bg-amber-600/30'
+                              : 'bg-violet-600/20 border-violet-600/30 text-violet-300 hover:bg-violet-600/30'
+                          }`}
+                        >
+                          {followUpButtonLabel(lead)}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(lead.id)}
+                          className={`text-xs px-3 py-1.5 rounded-md border transition-colors font-medium ${
+                            deleteConfirm === lead.id
+                              ? 'bg-red-600 border-red-500 text-white'
+                              : 'bg-red-600/10 border-red-600/20 text-red-400 hover:bg-red-600/20'
+                          }`}
+                        >
+                          {deleteConfirm === lead.id ? 'Confirm?' : 'Delete'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

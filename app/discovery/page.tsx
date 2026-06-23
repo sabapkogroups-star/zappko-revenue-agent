@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveLead, setSelectedLead, incrementAudits, incrementOutreach } from '@/lib/storage';
+import { saveLead } from '@/lib/lead-service';
+import { setSelectedLead, incrementAudits, incrementOutreach } from '@/lib/storage';
 import type { DiscoveryResult, DiscoverySource } from '@/app/types';
 
 // ---------------------------------------------------------------------------
@@ -128,6 +129,7 @@ export default function DiscoveryPage() {
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [pdfLoading, setPdfLoading] = useState<Set<string>>(new Set());
   const [proposalLoading, setProposalLoading] = useState<Set<string>>(new Set());
 
@@ -187,13 +189,19 @@ export default function DiscoveryPage() {
     fetchPage(page + 1, true);
   };
 
-  const handleSaveLead = (lead: DiscoveryResult) => {
-    const result = saveLead({ ...lead, industry, city, country });
-    if (result.saved) {
-      setSavedIds((prev) => new Set(prev).add(lead.company));
-      addToast(`${lead.company} saved to pipeline`, 'success');
-    } else {
-      addToast(result.message, 'error');
+  const handleSaveLead = async (lead: DiscoveryResult) => {
+    if (savingIds.has(lead.company) || savedIds.has(lead.company)) return;
+    setSavingIds((prev) => new Set(prev).add(lead.company));
+    try {
+      const result = await saveLead({ ...lead, industry, city, country });
+      if (result.saved) {
+        setSavedIds((prev) => new Set(prev).add(lead.company));
+        addToast(`${lead.company} saved to pipeline`, 'success');
+      } else {
+        addToast(result.message, 'error');
+      }
+    } finally {
+      setSavingIds((prev) => { const s = new Set(prev); s.delete(lead.company); return s; });
     }
   };
 
@@ -252,9 +260,9 @@ export default function DiscoveryPage() {
   };
 
   return (
-    <div className="p-8 max-w-full">
+    <div className="p-4 md:p-8 max-w-full">
       {/* Toasts */}
-      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
+      <div className="fixed top-16 md:top-4 right-4 z-50 flex flex-col gap-2">
         {toasts.map((t) => (
           <div
             key={t.id}
@@ -270,16 +278,16 @@ export default function DiscoveryPage() {
       </div>
 
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white">Lead Discovery</h1>
+      <div className="mb-6 md:mb-8">
+        <h1 className="text-2xl md:text-3xl font-bold text-white">Lead Discovery</h1>
         <p className="text-zinc-500 mt-1 text-sm">
           Multi-provider engine: Google → Maps → Directory with automatic failover.
         </p>
       </div>
 
       {/* Controls */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 md:p-5 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <div>
             <label className="block text-xs text-zinc-500 mb-1.5 font-medium">Industry</label>
             <input
@@ -322,7 +330,7 @@ export default function DiscoveryPage() {
         <button
           onClick={runDiscovery}
           disabled={loading}
-          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-6 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors flex items-center gap-2"
+          className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-6 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors flex items-center justify-center gap-2"
         >
           {loading ? (
             <>
@@ -346,7 +354,131 @@ export default function DiscoveryPage() {
             </p>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-zinc-800">
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-3">
+            {results.map((lead, i) => (
+              <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                {/* Company + badges */}
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-white">{lead.company}</p>
+                    <a
+                      href={lead.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-400 hover:text-blue-300 transition-colors truncate block"
+                    >
+                      {lead.website.replace('https://', '')}
+                    </a>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <HotBadge score={lead.hotLeadScore} />
+                    <SourceBadge source={lead.source} />
+                  </div>
+                </div>
+
+                {/* Scores row */}
+                <div className="grid grid-cols-4 gap-2 mb-3 bg-zinc-800/40 rounded-lg p-2">
+                  <div className="text-center">
+                    <p className="text-[10px] text-zinc-600 mb-1">Web</p>
+                    <ScoreChip score={lead.websiteScore} />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-zinc-600 mb-1">Opp</p>
+                    <ScoreChip score={lead.opportunityScore} />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-zinc-600 mb-1">Conf</p>
+                    <ConfidenceChip value={lead.confidence} />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-zinc-600 mb-1">Deal</p>
+                    <p className="text-emerald-400 text-xs font-bold">{lead.dealValue}</p>
+                  </div>
+                </div>
+
+                {/* Contact */}
+                {(lead.decisionMaker || lead.email || lead.phone) && (
+                  <div className="bg-zinc-800/30 rounded-lg p-3 mb-3 border border-zinc-700/40">
+                    {lead.decisionMaker && (
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <p className="text-white text-xs font-semibold">{lead.decisionMaker}</p>
+                        <ContactConfidencePip value={lead.contactConfidence} />
+                      </div>
+                    )}
+                    {lead.title && <p className="text-blue-400/80 text-xs mb-0.5">{lead.title}</p>}
+                    {lead.email && <p className="text-zinc-500 text-xs">{lead.email}</p>}
+                    {lead.phone && <p className="text-zinc-500 text-xs">{lead.phone}</p>}
+                    {lead.linkedinUrl && (
+                      <a href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300">
+                        LinkedIn ↗
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                {/* Issues */}
+                {lead.issues.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-3">
+                    {lead.issues.slice(0, 3).map((issue, j) => (
+                      <span key={j} className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/15 text-red-400">
+                        {issue}
+                      </span>
+                    ))}
+                    {lead.issues.length > 3 && <span className="text-[10px] text-zinc-600">+{lead.issues.length - 3}</span>}
+                  </div>
+                )}
+
+                {/* Actions — primary full-width, secondary 2-col */}
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => handleSaveLead(lead)}
+                    disabled={savedIds.has(lead.company) || savingIds.has(lead.company)}
+                    className="w-full text-sm px-3 py-3 rounded-md bg-blue-600/20 border border-blue-600/30 text-blue-300 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium flex items-center justify-center gap-1.5"
+                  >
+                    {savingIds.has(lead.company) ? (
+                      <><span className="inline-block w-3 h-3 border border-blue-400/40 border-t-blue-300 rounded-full animate-spin" />Saving…</>
+                    ) : savedIds.has(lead.company) ? '✓ Saved' : 'Save Lead'}
+                  </button>
+                  <button
+                    onClick={() => handleOutreach(lead)}
+                    className="w-full text-sm px-3 py-3 rounded-md bg-emerald-600/20 border border-emerald-600/30 text-emerald-300 hover:bg-emerald-600/30 transition-colors font-medium"
+                  >
+                    Outreach
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleDownloadPdf(lead)}
+                      disabled={pdfLoading.has(lead.company)}
+                      className="text-xs px-3 py-2.5 rounded-md bg-violet-600/20 border border-violet-600/30 text-violet-300 hover:bg-violet-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium flex items-center justify-center gap-1"
+                    >
+                      {pdfLoading.has(lead.company) ? (
+                        <>
+                          <span className="inline-block w-2.5 h-2.5 border border-violet-400/40 border-t-violet-300 rounded-full animate-spin" />
+                          Generating…
+                        </>
+                      ) : '↓ Audit PDF'}
+                    </button>
+                    <button
+                      onClick={() => handleDownloadProposal(lead)}
+                      disabled={proposalLoading.has(lead.company)}
+                      className="text-xs px-3 py-2.5 rounded-md bg-amber-600/20 border border-amber-600/30 text-amber-300 hover:bg-amber-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium flex items-center justify-center gap-1"
+                    >
+                      {proposalLoading.has(lead.company) ? (
+                        <>
+                          <span className="inline-block w-2.5 h-2.5 border border-amber-400/40 border-t-amber-300 rounded-full animate-spin" />
+                          Generating…
+                        </>
+                      ) : '↓ Proposal'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto rounded-xl border border-zinc-800">
             <table className="w-full text-sm min-w-350">
               <thead>
                 <tr className="bg-zinc-900 border-b border-zinc-800">
@@ -470,10 +602,12 @@ export default function DiscoveryPage() {
                       <div className="flex flex-col gap-1.5">
                         <button
                           onClick={() => handleSaveLead(lead)}
-                          disabled={savedIds.has(lead.company)}
-                          className="text-xs px-3 py-1.5 rounded-md bg-blue-600/20 border border-blue-600/30 text-blue-300 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium whitespace-nowrap"
+                          disabled={savedIds.has(lead.company) || savingIds.has(lead.company)}
+                          className="text-xs px-3 py-1.5 rounded-md bg-blue-600/20 border border-blue-600/30 text-blue-300 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium whitespace-nowrap flex items-center gap-1"
                         >
-                          {savedIds.has(lead.company) ? '✓ Saved' : 'Save Lead'}
+                          {savingIds.has(lead.company) ? (
+                            <><span className="inline-block w-2.5 h-2.5 border border-blue-400/40 border-t-blue-300 rounded-full animate-spin" />Saving…</>
+                          ) : savedIds.has(lead.company) ? '✓ Saved' : 'Save Lead'}
                         </button>
                         <button
                           onClick={() => handleOutreach(lead)}
@@ -540,7 +674,7 @@ export default function DiscoveryPage() {
       )}
 
       {!loading && results.length === 0 && (
-        <div className="text-center py-20 text-zinc-600">
+        <div className="text-center py-16 md:py-20 text-zinc-600">
           <p className="text-5xl mb-4">🔍</p>
           <p className="text-lg font-medium text-zinc-400">No results yet</p>
           <p className="text-sm mt-1">Enter an industry, city and country, then click Start Discovery.</p>
